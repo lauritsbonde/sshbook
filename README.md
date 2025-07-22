@@ -11,6 +11,10 @@ With sshbook, your servers are grouped, searchable, and always just a few keystr
 
 Built for developers, sysadmins, and anyone who lives in their terminal.
 
+# Landing page
+
+Landing page: https://sshbook.dev/
+
 ⸻
 
 🛠 Why sshbook?
