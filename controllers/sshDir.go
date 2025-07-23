@@ -4,16 +4,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sshbook/models"
 	"strings"
 )
 
-type SSHDirContents struct {
-	Keys       []string
-	Config     string
-	KnownHosts []string
-}
-
-func SshDirContents() SSHDirContents {
+func SshDirContents() models.SSHDirContents {
 	// This function should return the contents of the SSH directory.
 	userHome, err := os.UserHomeDir()
 	if err != nil {
@@ -70,7 +65,7 @@ func SshDirContents() SSHDirContents {
 		log.Fatalf("Error reading known_hosts file: %v", err)
 	}
 
-	return SSHDirContents{
+	return models.SSHDirContents{
 		Keys:       uniqueKeys,
 		Config:     sshDir + "/config",
 		KnownHosts: knownhosts,
@@ -102,15 +97,4 @@ func readKnownHostsFile() ([]string, error) {
 	}
 
 	return cleaned, nil
-}
-
-func (s SSHDirContents) String() string {
-	result := "SSH Directory Contents:\n"
-	result += "Keys:\n"
-	for _, key := range s.Keys {
-		result += fmt.Sprintf("- %s\n", key)
-	}
-	result += fmt.Sprintf("Config file: %s\n", s.Config)
-	result += fmt.Sprintf("Known hosts file: %s\n", s.KnownHosts)
-	return result
 }
