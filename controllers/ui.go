@@ -74,11 +74,11 @@ func RenderUI(state *models.AppState) {
 	ui.Render(grid)
 }
 
-func isActivePane(state *models.AppState, paneName string) bool {
+func isActivePane(state *models.AppState, paneName models.Pane) bool {
 	return state.ActivePane == paneName
 }
 
-func tabPaneShift(state *models.AppState, shiftPressed bool) string {
+func tabPaneShift(state *models.AppState, shiftPressed bool) models.Pane {
 	index := -1
 	for i, pane := range state.Panes {
 		if pane == state.ActivePane {
@@ -98,7 +98,7 @@ func tabPaneShift(state *models.AppState, shiftPressed bool) string {
 	return state.Panes[index] // Return the new active pane
 }
 
-func updateSelectedIndex(state *models.AppState, paneName string, direction int) {
+func updateSelectedIndex(state *models.AppState, paneName models.Pane, direction int) {
 	if state.SelectedIndex[paneName] == 0 && direction < 0 {
 		return // Prevent going below 0
 	}

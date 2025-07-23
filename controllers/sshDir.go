@@ -67,7 +67,7 @@ func SshDirContents() models.SSHDirContents {
 
 	return models.SSHDirContents{
 		Keys:       uniqueKeys,
-		Config:     sshDir + "/config",
+		ConfigPath: sshDir + "/config",
 		KnownHosts: knownhosts,
 	}
 

@@ -18,8 +18,8 @@ func main() {
 	appState := &models.AppState{
 		SSHDirContents: controllers.SshDirContents(),
 		ActivePane:     "hosts",
-		Panes:          []string{"hosts", "keys", "groups", "help"},
-		SelectedIndex: map[string]int{
+		Panes:          []models.Pane{"hosts", "keys", "groups", "help"},
+		SelectedIndex: map[models.Pane]int{
 			"hosts":  0,
 			"keys":   0,
 			"groups": 0,

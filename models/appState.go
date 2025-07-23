@@ -1,29 +1,42 @@
 package models
 
-import (
-	"fmt"
+type Pane string
+
+const (
+	PaneHosts  Pane = "hosts"
+	PaneKeys   Pane = "keys"
+	PaneGroups Pane = "groups"
+	PaneHelp   Pane = "help"
 )
 
-type SSHDirContents struct {
-	Keys       []string
-	Config     string
-	KnownHosts []string
+type SSHConfigEntry struct {
+	Host         string
+	HostName     string
+	User         string
+	IdentityFile string
 }
 
-func (s SSHDirContents) String() string {
-	result := "SSH Directory Contents:\n"
-	result += "Keys:\n"
-	for _, key := range s.Keys {
-		result += fmt.Sprintf("- %s\n", key)
-	}
-	result += fmt.Sprintf("Config file: %s\n", s.Config)
-	result += fmt.Sprintf("Known hosts file: %s\n", s.KnownHosts)
-	return result
+type SSHDirContents struct {
+	Keys             []string
+	ConfigPath       string
+	KnownHosts       []string
+	SSHConfigEntries []SSHConfigEntry
 }
 
 type AppState struct {
 	SSHDirContents SSHDirContents
-	ActivePane     string         // "hosts", "keys", "groups", "help" - (thinking about making this an index)
-	Panes          []string       // List of all panes
-	SelectedIndex  map[string]int // Map to hold selected index for each pane
+	Panes          []Pane       // List of all panes
+	ActivePane     Pane         // Currently active pane
+	SelectedIndex  map[Pane]int // Map to hold selected index for each pane
+}
+
+func (s *AppState) CurrentSelectedHost() string {
+	if s.ActivePane != PaneHosts {
+		return ""
+	}
+	i := s.SelectedIndex[PaneHosts]
+	if i >= 0 && i < len(s.SSHDirContents.KnownHosts) {
+		return s.SSHDirContents.KnownHosts[i]
+	}
+	return ""
 }
