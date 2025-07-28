@@ -25,7 +25,7 @@ func HandleKeyEvent(state *models.AppState, key string) {
 			state.InputBuffer = ""
 		case "<Enter>":
 			index, err := strconv.Atoi(state.InputBuffer)
-			if err == nil && state.ActivePane == models.PaneHosts && index >= 0 && index < len(state.SSHDirContents.KnownHosts) {
+			if err == nil && state.DashboardPane == models.PaneHosts && index >= 0 && index < len(state.SSHDirContents.KnownHosts) {
 				state.SelectedIndex[models.PaneHosts] = index
 			}
 			state.InputMode = false
@@ -39,35 +39,50 @@ func HandleKeyEvent(state *models.AppState, key string) {
 				}
 			} else {
 				log.Printf("Unhandled input in input mode: %s", key)
-				rerender = false // Don't rerender for unhandled keys in input mode
+				rerender = false
 			}
 		}
 	} else {
 		switch key {
 		case "q":
-			ui.Close()
-			os.Exit(0)
+			activeTab := state.ActiveTab()
+			if activeTab.Type == models.TabSSH {
+				if activeTab != nil && activeTab.Type == models.TabSSH {
+					activeTab.Pty.Close()   // Close the PTY
+					state.CloseCurrentTab() // Remove the SSH tab
+				}
+			} else {
+				ui.Close()
+				os.Exit(0)
+			}
+
 		case "h":
-			state.ActivePane = "hosts"
+			state.DashboardPane = models.PaneHosts
 		case "k":
-			state.ActivePane = "keys"
+			state.DashboardPane = models.PaneKeys
 		case "g":
-			state.ActivePane = "groups"
+			state.DashboardPane = models.PaneGroups
 		case "?", "+":
-			state.ActivePane = "help"
+			state.DashboardPane = models.PaneHelp
 		case "<Tab>":
-			state.ActivePane = tabPaneShift(state, false)
+			state.DashboardPane = tabPaneShift(state, false)
 		case "<Escape>[Z":
-			state.ActivePane = tabPaneShift(state, true)
+			state.DashboardPane = tabPaneShift(state, true)
 		case "<Up>":
-			updateSelectedIndex(state, state.ActivePane, -1)
+			updateSelectedIndex(state, state.DashboardPane, -1)
 		case "<Down>":
-			updateSelectedIndex(state, state.ActivePane, 1)
+			updateSelectedIndex(state, state.DashboardPane, 1)
 		case "<Enter>":
 			handleEnterKey(state)
 		case "i":
 			state.InputMode = true
 			state.InputBuffer = ""
+		case "<Right>":
+			state.NextTab()
+		case "<Left>":
+			state.PrevTab()
+		case "x":
+			state.CloseCurrentTab()
 		default:
 			log.Printf("Unhandled key: %s", key)
 			rerender = false
@@ -80,18 +95,32 @@ func HandleKeyEvent(state *models.AppState, key string) {
 }
 
 func RenderUI(state *models.AppState) {
+	var grid *ui.Grid = ui.NewGrid()
 
-	var grid *ui.Grid
+	tabPane := views.TabPane(state)
 
-	switch state.ActivePane {
-	case "hosts", "keys", "groups", "help":
-		grid = renderStartScreen(state)
-	case "ssh":
-		grid = renderSSHCon(state)
+	var content *ui.Grid
+
+	if tab := state.ActiveTab(); tab != nil && tab.Type == models.TabSSH {
+		content = renderSSHCon(state)
+	} else {
+		content = renderStartScreen(state)
 	}
 
-	ui.Clear() // Clear the UI to prevent overlapping renders
+	grid.Set(
+		ui.NewRow(0.05, tabPane),
+		ui.NewRow(0.95, content),
+	)
+
+	termWidth, termHeight := ui.TerminalDimensions()
+	grid.SetRect(0, 0, termWidth, termHeight)
+
+	ui.Clear()
 	ui.Render(grid)
+}
+
+func isActivePane(state *models.AppState, paneName models.Pane) bool {
+	return state.DashboardPane == paneName
 }
 
 func renderStartScreen(state *models.AppState) *ui.Grid {
@@ -103,10 +132,10 @@ func renderStartScreen(state *models.AppState) *ui.Grid {
 
 	termWidth, termHeight := ui.TerminalDimensions()
 
-	views.SetupHosts(termWidth, termHeight, hosts, state.SSHDirContents.KnownHosts, isActivePane(state, "hosts"), state.SelectedIndex["hosts"])
-	views.SetupSSHKeys(termWidth, termHeight, sshKeys, state.SSHDirContents.Keys, isActivePane(state, "keys"), state.SelectedIndex["keys"])
-	views.SetupGroups(termWidth, termHeight, groups, isActivePane(state, "groups"))
-	views.SetupHelp(termWidth, termHeight, help, isActivePane(state, "help"))
+	views.SetupHosts(termWidth, termHeight, hosts, state.SSHDirContents.KnownHosts, isActivePane(state, models.PaneHosts), state.SelectedIndex[models.PaneHosts])
+	views.SetupSSHKeys(termWidth, termHeight, sshKeys, state.SSHDirContents.Keys, isActivePane(state, models.PaneKeys), state.SelectedIndex[models.PaneKeys])
+	views.SetupGroups(termWidth, termHeight, groups, isActivePane(state, models.PaneGroups))
+	views.SetupHelp(termWidth, termHeight, help, isActivePane(state, models.PaneHelp))
 
 	// ── Status bar content
 	if state.InputMode {
@@ -122,12 +151,12 @@ func renderStartScreen(state *models.AppState) *ui.Grid {
 	grid := ui.NewGrid()
 	grid.Set(
 		ui.NewRow(0.4, hosts),
-		ui.NewRow(0.4,
+		ui.NewRow(0.3,
 			ui.NewCol(0.5, sshKeys),
 			ui.NewCol(0.5, groups),
 		),
 		ui.NewRow(0.15, help),
-		ui.NewRow(0.05, status),
+		ui.NewRow(0.1, status),
 	)
 	grid.SetRect(0, 0, termWidth, termHeight)
 
@@ -149,28 +178,29 @@ func renderSSHCon(state *models.AppState) *ui.Grid {
 	return grid
 }
 
-func isActivePane(state *models.AppState, paneName models.Pane) bool {
-	return state.ActivePane == paneName
-}
-
 func tabPaneShift(state *models.AppState, shiftPressed bool) models.Pane {
+	panes := []models.Pane{models.PaneHosts, models.PaneKeys, models.PaneGroups, models.PaneHelp}
 	index := -1
-	for i, pane := range state.Panes {
-		if pane == state.ActivePane {
+
+	for i, pane := range panes {
+		if pane == state.DashboardPane {
 			index = i
 			break
 		}
 	}
+
 	if index == -1 {
-		log.Println("Active pane not found in state.Panes") // Debugging: Log if
-		return state.ActivePane
+		log.Println("Active pane not found in dashboard panes")
+		return state.DashboardPane
 	}
+
 	if shiftPressed {
-		index = (index - 1 + len(state.Panes)) % len(state.Panes) // Shift left
+		index = (index - 1 + len(panes)) % len(panes)
 	} else {
-		index = (index + 1) % len(state.Panes) // Shift right
+		index = (index + 1) % len(panes)
 	}
-	return state.Panes[index] // Return the new active pane
+
+	return panes[index]
 }
 
 func updateSelectedIndex(state *models.AppState, paneName models.Pane, direction int) {
@@ -182,11 +212,10 @@ func updateSelectedIndex(state *models.AppState, paneName models.Pane, direction
 }
 
 func handleEnterKey(state *models.AppState) {
-	if state.ActivePane == models.PaneHosts {
+	if state.DashboardPane == models.PaneHosts {
 		host := state.CurrentSelectedHost()
 		if host != "" {
 			go startSSHSession(state, host)
-			state.ActivePane = models.PaneSSH
 		}
 	}
 }
@@ -199,34 +228,37 @@ func startSSHSession(state *models.AppState, host string) {
 		return
 	}
 
-	session := &models.SSHSession{
-		Host:        host,
-		Cmd:         cmd,
-		Pty:         ptmx,
-		OutputLines: []string{},
-	}
-	state.SSHTabs.Sessions = append(state.SSHTabs.Sessions, session)
-	state.SSHTabs.ActiveIdx = len(state.SSHTabs.Sessions) - 1
+	state.AddSSHSession(host, cmd, ptmx)
 
 	go func() {
 		defer ptmx.Close()
 		buf := make([]byte, 1024)
+
 		for {
 			n, err := ptmx.Read(buf)
 			if n > 0 {
 				output := string(buf[:n])
 				lines := splitLines(output)
-				session.OutputLines = append(session.OutputLines, lines...)
+
+				tab := state.ActiveTab()
+				if tab != nil && tab.Type == models.TabSSH && tab.Pty == ptmx {
+					tab.OutputLines = append(tab.OutputLines, lines...)
+				}
 
 				ui.Clear()
 				RenderUI(state)
 			}
 			if err != nil {
-				session.OutputLines = append(session.OutputLines, "[SSH session ended]")
+				tab := state.ActiveTab()
+				if tab != nil && tab.Type == models.TabSSH && tab.Pty == ptmx {
+					tab.OutputLines = append(tab.OutputLines, "[SSH session ended]")
+				}
 				break
 			}
 		}
 	}()
+
+	RenderUI(state)
 }
 
 func splitLines(s string) []string {

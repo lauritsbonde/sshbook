@@ -17,14 +17,17 @@ func main() {
 
 	appState := &models.AppState{
 		SSHDirContents: controllers.SshDirContents(),
-		ActivePane:     "hosts",
-		Panes:          []models.Pane{"hosts", "keys", "groups", "help"},
+		DashboardPane:  models.PaneHosts,
 		SelectedIndex: map[models.Pane]int{
-			"hosts":  0,
-			"keys":   0,
-			"groups": 0,
-			"help":   0,
+			models.PaneHosts:  0,
+			models.PaneKeys:   0,
+			models.PaneGroups: 0,
+			models.PaneHelp:   0,
 		},
+		Tabs: []models.Tab{
+			{Type: models.TabDashboard},
+		},
+		ActiveIdx: 0,
 	}
 
 	controllers.RenderUI(appState)

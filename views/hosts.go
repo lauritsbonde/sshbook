@@ -21,14 +21,5 @@ func SetupHosts(width int, height int, p *widgets.Paragraph, knownHosts []string
 		return shortHost
 	})
 
-	// for i := 0; i < len(visibleRows.Rows); i++ {
-	// 	shortHost := strings.Split(knownHosts[i], " ")[0]
-	// 	if i+visibleRows.Start == activeIndex {
-	// 		shortHost = "➤ " + shortHost
-	// 	} else {
-	// 		shortHost = strconv.Itoa(i+visibleRows.Start) + ": " + shortHost
-	// 	}
-	// 	p.Text += "\n" + shortHost
-	// }
 	p.Border = true
 }

@@ -13,7 +13,6 @@ const (
 	PaneKeys   Pane = "keys"
 	PaneGroups Pane = "groups"
 	PaneHelp   Pane = "help"
-	PaneSSH    Pane = "ssh"
 )
 
 type SSHConfigEntry struct {
@@ -37,26 +36,55 @@ type SSHSession struct {
 	Pty         *os.File  // PTY for interactive sessions
 }
 
-type Tabs struct {
-	Sessions  []*SSHSession // one per host
-	ActiveIdx int
+type TabType string
+
+const (
+	TabDashboard TabType = "dashboard"
+	TabSSH       TabType = "ssh"
+)
+
+type Tab struct {
+	Type TabType
+
+	// Only for TabSSH
+	Host        string
+	OutputLines []string
+	Cmd         *exec.Cmd
+	Pty         *os.File
 }
 
 type AppState struct {
-	SSHDirContents SSHDirContents
+	Tabs      []Tab
+	ActiveIdx int
 
-	Panes      []Pane // List of all panes
-	ActivePane Pane   // Currently active pane
+	InputMode   bool   // whether we are in input mode (e.g. for selecting hosts)
+	InputBuffer string // user input buffer
 
-	SelectedIndex map[Pane]int // Map to hold selected index for each pane
-	SSHTabs       Tabs         // Tabs for SSH sessions
+	SSHDirContents SSHDirContents // ssh dir contents
+	SelectedIndex  map[Pane]int   // which index is selected in each dashboard pane
+	DashboardPane  Pane           // which dashboard sub-pane is active
+}
 
-	InputMode   bool   // true = input mode (like Vim's insert mode)
-	InputBuffer string // holds typed input while in input mode
+func (state *AppState) AddSSHSession(host string, cmd *exec.Cmd, pty *os.File) {
+	state.Tabs = append(state.Tabs, Tab{
+		Type:        TabSSH,
+		Host:        host,
+		Cmd:         cmd,
+		Pty:         pty,
+		OutputLines: []string{},
+	})
+	state.ActiveIdx = len(state.Tabs) - 1
+}
+
+func (state *AppState) ActiveTab() *Tab {
+	if state.ActiveIdx >= 0 && state.ActiveIdx < len(state.Tabs) {
+		return &state.Tabs[state.ActiveIdx]
+	}
+	return nil
 }
 
 func (s *AppState) CurrentSelectedHost() string {
-	if s.ActivePane != PaneHosts {
+	if s.ActiveTab().Type != TabDashboard || s.DashboardPane != PaneHosts {
 		return ""
 	}
 	i := s.SelectedIndex[PaneHosts]
@@ -67,30 +95,25 @@ func (s *AppState) CurrentSelectedHost() string {
 	return ""
 }
 
-func (t *Tabs) Add(host string, cmd *exec.Cmd, pty *os.File) {
-	t.Sessions = append(t.Sessions, &SSHSession{
-		Host: host,
-		Cmd:  cmd,
-		Pty:  pty,
-	})
-	t.ActiveIdx = len(t.Sessions) - 1
-}
-
-func (t *Tabs) Active() *SSHSession {
-	if len(t.Sessions) == 0 || t.ActiveIdx < 0 || t.ActiveIdx >= len(t.Sessions) {
-		return nil
-	}
-	return t.Sessions[t.ActiveIdx]
-}
-
-func (t *Tabs) Next() {
-	if len(t.Sessions) > 0 {
-		t.ActiveIdx = (t.ActiveIdx + 1) % len(t.Sessions)
+func (s *AppState) NextTab() {
+	if len(s.Tabs) > 0 {
+		s.ActiveIdx = (s.ActiveIdx + 1) % len(s.Tabs)
 	}
 }
 
-func (t *Tabs) Prev() {
-	if len(t.Sessions) > 0 {
-		t.ActiveIdx = (t.ActiveIdx - 1 + len(t.Sessions)) % len(t.Sessions)
+func (s *AppState) PrevTab() {
+	if len(s.Tabs) > 0 {
+		s.ActiveIdx = (s.ActiveIdx - 1 + len(s.Tabs)) % len(s.Tabs)
+	}
+}
+
+func (s *AppState) CloseCurrentTab() {
+	if s.ActiveIdx == 0 {
+		// Never close dashboard
+		return
+	}
+	s.Tabs = append(s.Tabs[:s.ActiveIdx], s.Tabs[s.ActiveIdx+1:]...)
+	if s.ActiveIdx >= len(s.Tabs) {
+		s.ActiveIdx = len(s.Tabs) - 1
 	}
 }
