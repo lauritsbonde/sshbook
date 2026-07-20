@@ -20,10 +20,3 @@ func (s SSHDirContents) String() string {
 	result += fmt.Sprintf("Known hosts file: %s\n", s.KnownHosts)
 	return result
 }
-
-type AppState struct {
-	SSHDirContents SSHDirContents
-	ActivePane     string         // "hosts", "keys", "groups", "help" - (thinking about making this an index)
-	Panes          []string       // List of all panes
-	SelectedIndex  map[string]int // Map to hold selected index for each pane
-}

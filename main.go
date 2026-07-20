@@ -2,40 +2,20 @@ package main
 
 import (
 	"fmt"
-	"sshbook/controllers"
-	"sshbook/models"
+	"os"
 
-	ui "github.com/gizak/termui/v3"
+	"sshbook/controllers"
+	"sshbook/tui"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
-	if err := ui.Init(); err != nil {
-		fmt.Printf("Error initializing termui: %v\n", err)
-		return
-	}
-	defer ui.Close()
+	model := tui.New(controllers.SshDirContents())
 
-	appState := &models.AppState{
-		SSHDirContents: controllers.SshDirContents(),
-		ActivePane:     "hosts",
-		Panes:          []string{"hosts", "keys", "groups", "help"},
-		SelectedIndex: map[string]int{
-			"hosts":  0,
-			"keys":   0,
-			"groups": 0,
-			"help":   0,
-		},
-	}
-
-	controllers.RenderUI(appState)
-
-	for e := range ui.PollEvents() {
-		switch e.Type {
-		case ui.ResizeEvent:
-			// Handle terminal resize
-			controllers.RenderUI(appState)
-		case ui.KeyboardEvent:
-			controllers.HandleKeyEvent(appState, e.ID)
-		}
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("Error running program: %v\n", err)
+		os.Exit(1)
 	}
 }
