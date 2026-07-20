@@ -12,32 +12,31 @@ func (m Model) View() string {
 		return "loading..."
 	}
 
+	if m.mode == modeForm {
+		return m.form.view(m.width)
+	}
+
 	// Row heights (borders eat 2 rows each; leave 1 for status line).
 	statusH := 1
 	usable := m.height - statusH
-	topH := usable * 4 / 10
-	midH := usable * 4 / 10
+	topH := usable * 5 / 10
+	midH := usable * 3 / 10
 	botH := usable - topH - midH
 
 	full := m.width
-	half := full / 2
 
-	hosts := m.listPane(paneHosts, "Known Hosts", m.hostRows(visibleRows(topH)), full, topH)
-
-	keys := m.listPane(paneKeys, "SSH Keys", m.keyRows(visibleRows(midH)), half, midH)
-	groups := m.textPane(paneGroups, "Groups", groupsText, full-half, midH)
-	mid := lipgloss.JoinHorizontal(lipgloss.Top, keys, groups)
-
+	connections := m.listPane(paneConnections, "Connections", m.connectionRows(visibleRows(topH)), full, topH)
+	keys := m.listPane(paneKeys, "SSH Keys", m.keyRows(visibleRows(midH)), full, midH)
 	help := m.textPane(paneHelp, "Help", helpText, full, botH)
 
-	status := m.statusLine
+	status := m.status
 	if status == "" {
-		status = "h hosts · k keys · g groups · ? help · tab cycle · ↑/↓ move · enter select · q quit"
+		status = "c connections · k keys · ? help · tab cycle · ↑/↓ move · a add · enter connect · q quit"
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
-		hosts,
-		mid,
+		connections,
+		keys,
 		help,
 		lipgloss.NewStyle().Faint(true).Render(truncate(status, full)),
 	)
@@ -61,7 +60,7 @@ func (m Model) title(pane, label string) string {
 }
 
 // listPane renders a bordered box with a title and pre-rendered rows.
-func (m Model) listPane(pane, label string, body string, w, h int) string {
+func (m Model) listPane(pane, label, body string, w, h int) string {
 	content := m.title(pane, label) + "\n" + body
 	return m.style(pane, w, h).Render(content)
 }
@@ -71,11 +70,19 @@ func (m Model) textPane(pane, label, text string, w, h int) string {
 	return m.style(pane, w, h).Render(content)
 }
 
-func (m Model) hostRows(visible int) string {
-	hosts := m.ssh.KnownHosts
+func (m Model) connectionRows(visible int) string {
+	conns := m.ssh.Connections
 	var b strings.Builder
-	fmt.Fprintf(&b, "Total known hosts: %d\n", len(hosts))
-	b.WriteString(rows(mapFirstField(hosts), m.selected[paneHosts], visible))
+	fmt.Fprintf(&b, "Total connections: %d\n", len(conns))
+	if len(conns) == 0 {
+		b.WriteString(lipgloss.NewStyle().Faint(true).Render("none yet — press 'a' to add one"))
+		return b.String()
+	}
+	summaries := make([]string, len(conns))
+	for i, c := range conns {
+		summaries[i] = c.Summary()
+	}
+	b.WriteString(rows(summaries, m.selected[paneConnections], visible))
 	return b.String()
 }
 
@@ -123,14 +130,6 @@ func rows(items []string, sel, visible int) string {
 	return b.String()
 }
 
-func mapFirstField(items []string) []string {
-	out := make([]string, len(items))
-	for i, it := range items {
-		out[i] = firstField(it)
-	}
-	return out
-}
-
 func truncate(s string, w int) string {
 	if lipgloss.Width(s) <= w {
 		return s
@@ -138,7 +137,6 @@ func truncate(s string, w int) string {
 	return string([]rune(s)[:w])
 }
 
-const groupsText = "Groups organize SSH hosts and keys.\n\nCurrently, no groups are defined."
-
-const helpText = "q quit · h hosts · k keys · g groups · ? help\n" +
-	"tab / shift+tab cycle panes · ↑/↓ navigate · enter select"
+const helpText = "q quit · c connections · k keys · ? help\n" +
+	"tab / shift+tab cycle panes · ↑/↓ navigate\n" +
+	"a add connection · enter connect (ssh)"

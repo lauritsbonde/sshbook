@@ -5,9 +5,9 @@ import (
 )
 
 type SSHDirContents struct {
-	Keys       []string
-	Config     string
-	KnownHosts []string
+	Keys        []string
+	Config      string
+	Connections []Connection
 }
 
 func (s SSHDirContents) String() string {
@@ -17,6 +17,6 @@ func (s SSHDirContents) String() string {
 		result += fmt.Sprintf("- %s\n", key)
 	}
 	result += fmt.Sprintf("Config file: %s\n", s.Config)
-	result += fmt.Sprintf("Known hosts file: %s\n", s.KnownHosts)
+	result += fmt.Sprintf("Connections: %d\n", len(s.Connections))
 	return result
 }
