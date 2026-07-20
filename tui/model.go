@@ -2,24 +2,31 @@ package tui
 
 import (
 	"fmt"
-	"strings"
+	"os/exec"
 
+	"sshbook/controllers"
 	"sshbook/models"
 
-	"github.com/charmbracelet/lipgloss"
-
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Pane identifiers.
 const (
-	paneHosts  = "hosts"
-	paneKeys   = "keys"
-	paneGroups = "groups"
-	paneHelp   = "help"
+	paneConnections = "connections"
+	paneKeys        = "keys"
+	paneHelp        = "help"
 )
 
-var panes = []string{paneHosts, paneKeys, paneGroups, paneHelp}
+var panes = []string{paneConnections, paneKeys, paneHelp}
+
+// mode is the top-level UI mode.
+type mode int
+
+const (
+	modeList mode = iota
+	modeForm
+)
 
 // Styles.
 var (
@@ -38,24 +45,25 @@ var (
 
 // Model is the root bubbletea model.
 type Model struct {
-	ssh        models.SSHDirContents
-	active     string
-	selected   map[string]int
-	width      int
-	height     int
-	statusLine string
+	ssh      models.SSHDirContents
+	active   string
+	selected map[string]int
+	width    int
+	height   int
+	status   string
+	mode     mode
+	form     form
 }
 
 // New builds the initial model from the SSH directory contents.
 func New(ssh models.SSHDirContents) Model {
 	return Model{
 		ssh:    ssh,
-		active: paneHosts,
+		active: paneConnections,
 		selected: map[string]int{
-			paneHosts:  0,
-			paneKeys:   0,
-			paneGroups: 0,
-			paneHelp:   0,
+			paneConnections: 0,
+			paneKeys:        0,
+			paneHelp:        0,
 		},
 	}
 }
@@ -64,15 +72,21 @@ func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-// itemsFor returns the selectable items for a pane (nil for non-list panes).
-func (m Model) itemsFor(pane string) []string {
+// connectFinishedMsg is delivered after an interactive ssh session exits.
+type connectFinishedMsg struct {
+	name string
+	err  error
+}
+
+// itemCount returns how many selectable items a pane has.
+func (m Model) itemCount(pane string) int {
 	switch pane {
-	case paneHosts:
-		return m.ssh.KnownHosts
+	case paneConnections:
+		return len(m.ssh.Connections)
 	case paneKeys:
-		return m.ssh.Keys
+		return len(m.ssh.Keys)
 	default:
-		return nil
+		return 0
 	}
 }
 
@@ -83,57 +97,100 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		case "h":
-			m.active = paneHosts
-		case "k":
-			m.active = paneKeys
-		case "g":
-			m.active = paneGroups
-		case "?", "+":
-			m.active = paneHelp
-		case "tab":
-			m.active = shift(m.active, 1)
-		case "shift+tab":
-			m.active = shift(m.active, -1)
-		case "up":
-			m.move(-1)
-		case "down":
-			m.move(1)
-		case "enter":
-			m.handleEnter()
+	case connectFinishedMsg:
+		if msg.err != nil {
+			m.status = fmt.Sprintf("ssh %s failed: %v", msg.name, msg.err)
+		} else {
+			m.status = fmt.Sprintf("ssh %s session ended", msg.name)
 		}
+		return m, nil
+
+	case tea.KeyMsg:
+		if m.mode == modeForm {
+			return m.updateForm(msg)
+		}
+		return m.updateList(msg)
 	}
 	return m, nil
 }
 
+func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "c":
+		m.active = paneConnections
+	case "k":
+		m.active = paneKeys
+	case "?", "+":
+		m.active = paneHelp
+	case "tab":
+		m.active = shift(m.active, 1)
+	case "shift+tab":
+		m.active = shift(m.active, -1)
+	case "up":
+		m.move(-1)
+	case "down":
+		m.move(1)
+	case "a":
+		m.form = newForm(m.ssh.Keys)
+		m.mode = modeForm
+		m.status = ""
+	case "enter":
+		return m, m.connect()
+	}
+	return m, nil
+}
+
+func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	f, result, cmd := m.form.update(msg)
+	m.form = f
+	switch result {
+	case formCancelled:
+		m.mode = modeList
+		return m, nil
+	case formSubmitted:
+		conn := m.form.connection()
+		if err := controllers.AppendConnection(m.ssh.Config, conn); err != nil {
+			m.form.err = err.Error()
+			return m, nil
+		}
+		m.ssh = controllers.SshDirContents() // reload with the new entry
+		m.mode = modeList
+		m.active = paneConnections
+		m.status = fmt.Sprintf("added connection %q", conn.Name)
+		return m, nil
+	}
+	return m, cmd
+}
+
+// connect suspends the TUI and runs an interactive ssh session for the
+// selected connection.
+func (m Model) connect() tea.Cmd {
+	if m.active != paneConnections || len(m.ssh.Connections) == 0 {
+		return nil
+	}
+	conn := m.ssh.Connections[m.selected[paneConnections]]
+	c := exec.Command("ssh", conn.Name)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return connectFinishedMsg{name: conn.Name, err: err}
+	})
+}
+
 // move changes the selected index of the active pane, clamped to its items.
 func (m *Model) move(dir int) {
-	items := m.itemsFor(m.active)
-	if len(items) == 0 {
+	n := m.itemCount(m.active)
+	if n == 0 {
 		return
 	}
 	idx := m.selected[m.active] + dir
 	if idx < 0 {
 		idx = 0
 	}
-	if idx > len(items)-1 {
-		idx = len(items) - 1
+	if idx > n-1 {
+		idx = n - 1
 	}
 	m.selected[m.active] = idx
-}
-
-// handleEnter is the placeholder for SSH connection logic.
-func (m *Model) handleEnter() {
-	items := m.itemsFor(m.active)
-	if len(items) == 0 {
-		return
-	}
-	sel := items[m.selected[m.active]]
-	m.statusLine = fmt.Sprintf("selected %s: %s (connect not implemented)", m.active, firstField(sel))
 }
 
 // shift cycles to the next/previous pane.
@@ -147,8 +204,4 @@ func shift(active string, dir int) string {
 	}
 	idx = (idx + dir + len(panes)) % len(panes)
 	return panes[idx]
-}
-
-func firstField(s string) string {
-	return strings.Split(s, " ")[0]
 }

@@ -1,20 +1,21 @@
 package controllers
 
 import (
-	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sshbook/models"
 	"strings"
 )
 
+// SshDirContents reads the user's ~/.ssh directory: key pairs and the
+// connections defined in ~/.ssh/config.
 func SshDirContents() models.SSHDirContents {
-	// This function should return the contents of the SSH directory.
 	userHome, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatalf("Error getting user home directory: %v", err)
 	}
-	sshDir := userHome + "/.ssh"
+	sshDir := filepath.Join(userHome, ".ssh")
 	entries, err := os.ReadDir(sshDir)
 	if err != nil {
 		log.Fatalf("Error reading SSH directory: %v", err)
@@ -45,7 +46,7 @@ func SshDirContents() models.SSHDirContents {
 			// Extract the base name (without .pub)
 			baseName := strings.TrimSuffix(key, ".pub")
 			// Check if the private key exists
-			if _, err := os.Stat(sshDir + "/" + baseName); err == nil {
+			if _, err := os.Stat(filepath.Join(sshDir, baseName)); err == nil {
 				uniquePairs[baseName] = true // Add to unique pairs
 			}
 		} else {
@@ -60,41 +61,15 @@ func SshDirContents() models.SSHDirContents {
 		uniqueKeys = append(uniqueKeys, key)
 	}
 
-	knownhosts, err := readKnownHostsFile()
+	configPath := filepath.Join(sshDir, "config")
+	connections, err := ParseConfig(configPath)
 	if err != nil {
-		log.Fatalf("Error reading known_hosts file: %v", err)
+		log.Printf("Error reading ssh config: %v", err)
 	}
 
 	return models.SSHDirContents{
-		Keys:       uniqueKeys,
-		Config:     sshDir + "/config",
-		KnownHosts: knownhosts,
+		Keys:        uniqueKeys,
+		Config:      configPath,
+		Connections: connections,
 	}
-
-}
-
-func readKnownHostsFile() ([]string, error) {
-	userHome, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("error getting user home directory: %v", err)
-	}
-	knownHostsPath := userHome + "/.ssh/known_hosts"
-	data, err := os.ReadFile(knownHostsPath)
-	if err != nil {
-		return nil, fmt.Errorf("error reading known_hosts file: %v", err)
-	}
-
-	// Split into lines
-	lines := strings.Split(string(data), "\n")
-
-	// Clean up empty lines
-	cleaned := []string{}
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			cleaned = append(cleaned, line)
-		}
-	}
-
-	return cleaned, nil
 }
